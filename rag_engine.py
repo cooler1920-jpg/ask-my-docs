@@ -37,6 +37,33 @@ def gemini_client(api_key: str):
     return genai.Client(api_key=api_key)
 
 
+# Google occasionally returns 503 ("high demand") or 429 (rate limit). Those are
+# temporary, so wait a moment and try again rather than failing in front of
+# whoever is watching.
+RETRY_CODES = ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "500", "INTERNAL")
+MAX_ATTEMPTS = 4
+
+
+def with_retry(call):
+    """Run call(); retry a few times on temporary Google errors."""
+    delay = 1.5
+    last_error = None
+
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            return call()
+        except Exception as error:
+            message = str(error)
+            if not any(code in message for code in RETRY_CODES):
+                raise
+            last_error = error
+            if attempt < MAX_ATTEMPTS - 1:
+                time.sleep(delay)
+                delay *= 2
+
+    raise last_error
+
+
 def _is_ready(status):
     """Index status is an object in some SDK versions and a dict in others."""
     if status is None:
@@ -86,14 +113,14 @@ def embed(client, texts, task_type):
 
     for start in range(0, len(texts), batch):
         chunk = texts[start:start + batch]
-        result = client.models.embed_content(
+        result = with_retry(lambda: client.models.embed_content(
             model=EMBED_MODEL,
             contents=chunk,
             config=types.EmbedContentConfig(
                 task_type=task_type,
                 output_dimensionality=EMBED_DIM,
             ),
-        )
+        ))
         vectors.extend([e.values for e in result.embeddings])
 
     return vectors
@@ -227,10 +254,10 @@ def answer(client, question, hits, history=None):
         f"QUESTION: {question}\n\nANSWER:"
     )
 
-    response = client.models.generate_content(
+    response = with_retry(lambda: client.models.generate_content(
         model=CHAT_MODEL,
         contents=prompt,
-    )
+    ))
     text = (response.text or "").strip()
 
     # When it refuses, nothing was actually used - showing sources would imply
