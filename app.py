@@ -43,6 +43,41 @@ def stored_secret(name):
     return value
 
 
+SECRETS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml"
+)
+
+
+def save_secrets(google, pinecone, owner_password, admin_id="6002604486"):
+    """
+    Write the keys to .streamlit/secrets.toml so they survive a restart and
+    work on other devices. This file is in .gitignore, so it never leaves
+    this computer.
+    """
+    def clean(value):
+        # TOML strings cannot contain raw quotes or backslashes.
+        return value.strip().replace('"', "").replace("\\", "")
+
+    lines = [
+        "# Written by Ask My Docs. Keep this file private - never share it.",
+        "",
+        f'GOOGLE_API_KEY = "{clean(google)}"',
+        f'PINECONE_API_KEY = "{clean(pinecone)}"',
+        "",
+        "# Owner login for the simple chatbot (chatbot.py)",
+        f'ADMIN_ID = "{clean(admin_id)}"',
+        f'ADMIN_PASSWORD = "{clean(owner_password)}"',
+        "",
+    ]
+
+    folder = os.path.dirname(SECRETS_PATH)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+
+    with open(SECRETS_PATH, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+
+
 def safe_namespace(text):
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", text.strip().lower()).strip("-")
     return cleaned or "default"
@@ -69,6 +104,40 @@ with st.sidebar:
         st.success("Pinecone key loaded")
 
     index_name = st.text_input("Pinecone index name", value="ask-my-docs")
+
+    # Offer to remember the keys, but only when they were typed in by hand.
+    keys_typed = bool(gemini_key and pinecone_key) and not stored_secret("GOOGLE_API_KEY")
+
+    if keys_typed:
+        with st.expander("💾 Remember these keys on this computer", expanded=True):
+            st.caption(
+                "Saves them so you never paste them again, and so the phone "
+                "version works. Stays on this computer only."
+            )
+            owner_password = st.text_input(
+                "Choose an owner password",
+                type="password",
+                help="You will use this with ID 6002604486 to add information "
+                     "on the simple chatbot.",
+            )
+
+            if st.button("Save on this computer", type="primary"):
+                if len(owner_password.strip()) < 4:
+                    st.error("Pick a password of at least 4 characters.")
+                elif '"' in owner_password or "\\" in owner_password:
+                    st.error(
+                        'Please avoid the " and \\ characters in the password — '
+                        "letters, numbers and @ # $ % are all fine."
+                    )
+                else:
+                    try:
+                        save_secrets(gemini_key, pinecone_key, owner_password)
+                        st.success(
+                            "Saved. Your keys and owner password are stored on "
+                            "this computer."
+                        )
+                    except Exception as error:
+                        st.error(f"Could not save: {error}")
 
     st.divider()
     st.caption("A knowledge base keeps one set of documents separate from another.")
