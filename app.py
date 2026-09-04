@@ -105,15 +105,30 @@ with st.sidebar:
 
     index_name = st.text_input("Pinecone index name", value="ask-my-docs")
 
-    # Offer to remember the keys, but only when they were typed in by hand.
-    keys_typed = bool(gemini_key and pinecone_key) and not stored_secret("GOOGLE_API_KEY")
+    # Show this panel when the keys still need saving, or while the owner
+    # password is unset - so it is never necessary to edit the file by hand.
+    have_keys = bool(gemini_key and pinecone_key)
+    keys_typed = have_keys and not stored_secret("GOOGLE_API_KEY")
+    password_set = stored_secret("ADMIN_PASSWORD") not in ("", "change-me")
 
-    if keys_typed:
-        with st.expander("💾 Remember these keys on this computer", expanded=True):
-            st.caption(
-                "Saves them so you never paste them again, and so the phone "
-                "version works. Stays on this computer only."
-            )
+    if have_keys and (keys_typed or not password_set):
+        panel_title = (
+            "💾 Remember these keys on this computer"
+            if keys_typed
+            else "🔑 Set your owner password"
+        )
+
+        with st.expander(panel_title, expanded=True):
+            if keys_typed:
+                st.caption(
+                    "Saves them so you never paste them again, and so the phone "
+                    "version works. Stays on this computer only."
+                )
+            else:
+                st.caption(
+                    "Your keys are saved. Choose the password you will use with "
+                    "ID 6002604486 to add information on the shared chatbot."
+                )
             owner_password = st.text_input(
                 "Choose an owner password",
                 type="password",
